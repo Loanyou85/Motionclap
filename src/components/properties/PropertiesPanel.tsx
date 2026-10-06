@@ -11,6 +11,9 @@ import { CurveEditor } from '../curve/CurveEditor';
 import { Icon } from '../ui/Icon';
 import { ColorField, NumberField, Select, TextField } from '../ui/fields';
 import { LAYER_ICONS } from '../layers/LayersPanel';
+import { BUILTIN_FONTS } from '../../render/fonts';
+import { requireFeature } from '../../billing/gates';
+import { importFont } from '../../lib/importFiles';
 
 const GROUP_LABELS: Record<PropGroup, string> = {
   transform: 'Transformation',
@@ -167,6 +170,8 @@ export function PropertiesPanel() {
   const st = useStore.getState();
   const layer = selectedIds.length === 1 ? comp.layers.find((l) => l.id === selectedIds[0]) : undefined;
   const masks = useMemo(() => maskLayerIds(comp), [comp]);
+  const assets = useStore((s) => s.project.assets);
+  const customFonts = useMemo(() => assets.filter((a) => a.kind === 'font' && a.family).map((a) => a.family!), [assets]);
 
   let body: ReactNode;
   if (selectedIds.length > 1) {
@@ -217,8 +222,23 @@ export function PropertiesPanel() {
               <Select
                 value={layer.fontFamily ?? 'Inter'}
                 onChange={(v) => st.patchLayer(layer.id, { fontFamily: v })}
-                options={['Inter', 'Georgia', 'Arial', 'Courier New', 'Trebuchet MS', 'Verdana'].map((f) => ({ value: f, label: f }))}
+                options={[...BUILTIN_FONTS, ...customFonts].map((f) => ({ value: f, label: customFonts.includes(f) ? `${f} (personnalisée)` : f }))}
               />
+              <span />
+              <button
+                className="btn-ghost h-7 justify-start px-1 text-[12px] text-accent"
+                onClick={() => {
+                  if (!requireFeature((e) => e.customFonts, 'Les polices personnalisées sont incluses dans la formule Studio.')) return;
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.woff2,.woff,.ttf,.otf';
+                  input.onchange = () => input.files?.[0] && void importFont(input.files[0]);
+                  input.click();
+                }}
+              >
+                <Icon name="upload" size={13} />
+                Importer une police…
+              </button>
               <span className="field-label">Graisse</span>
               <Select
                 value={String(layer.fontWeight ?? 700)}

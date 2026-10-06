@@ -4,6 +4,8 @@ import { parsePath, pathBounds, serializePath, transformPath } from '../engine/p
 import { normalizeOrder } from '../engine/structure';
 import type { Composition, Layer } from '../engine/types';
 import { loadAudioBuffer } from '../render/assets';
+import { requireFeature } from '../billing/gates';
+import { familyFromFileName, registerFonts } from '../render/fonts';
 import { activeComp, useStore } from '../store/store';
 
 export function readAsDataURL(file: Blob): Promise<string> {
@@ -31,6 +33,7 @@ function fitSize(w: number, h: number, comp: Composition, ratio = 0.6) {
 }
 
 export async function importImage(file: File): Promise<void> {
+  if (!requireFeature((e) => e.customImages, 'L’import d’images personnalisées est inclus dans la formule Studio.')) return;
   const src = await readAsDataURL(file);
   const { width, height } = await loadImageSize(src);
   const st = useStore.getState();
@@ -219,10 +222,31 @@ export async function importSvg(file: File): Promise<void> {
   st.notify(`SVG importé : ${layers.length} forme${layers.length > 1 ? 's' : ''}.`);
 }
 
+const FONT_EXT = /\.(woff2?|ttf|otf)$/i;
+
+/** Police personnalisée (Studio) : appliquée au calque texte sélectionné. */
+export async function importFont(file: File): Promise<void> {
+  if (!requireFeature((e) => e.customFonts, 'Les polices personnalisées sont incluses dans la formule Studio.')) return;
+  const src = await readAsDataURL(file);
+  const st = useStore.getState();
+  const family = familyFromFileName(file.name, st.project.assets.filter((a) => a.kind === 'font').map((a) => a.family ?? ''));
+  const id = st.addAsset({ name: file.name, kind: 'font', src, family });
+  await registerFonts(useStore.getState().project.assets.filter((a) => a.id === id));
+  const comp = activeComp(useStore.getState());
+  const texts = useStore.getState().selectedLayerIds.filter((lid) => comp.layers.find((l) => l.id === lid)?.type === 'text');
+  if (texts.length) {
+    useStore.getState().updateComp((c) => {
+      for (const l of c.layers) if (texts.includes(l.id)) l.fontFamily = family;
+    });
+  }
+  useStore.getState().notify(`Police « ${family} » ajoutée.`);
+}
+
 /** Aiguille un fichier selon son type. */
 export async function importFile(file: File): Promise<void> {
   try {
-    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) await importSvg(file);
+    if (FONT_EXT.test(file.name) || file.type.startsWith('font/')) await importFont(file);
+    else if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) await importSvg(file);
     else if (file.type.startsWith('image/')) await importImage(file);
     else if (file.type.startsWith('audio/')) await importAudio(file);
     else useStore.getState().notify(`Format non pris en charge : ${file.name}`, 'error');

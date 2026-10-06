@@ -26,7 +26,7 @@
   --am-shadow: 0 1px 2px rgba(10, 31, 68, 0.04), 0 4px 16px rgba(10, 31, 68, 0.06);
 
   color-scheme: light;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: 'Inter Variable', Inter, system-ui, sans-serif;
   font-feature-settings: 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
 }

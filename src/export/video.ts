@@ -1,6 +1,7 @@
 import type { Composition, Project } from '../engine/types';
 import { getAudioBuffer, loadAudioBuffer, preloadImages } from '../render/assets';
 import { renderToCanvas } from '../render/renderer';
+import { registerFonts } from '../render/fonts';
 import { encodeWav, outputSize } from './wav';
 
 export type VideoFormat = 'mp4' | 'webm';
@@ -11,6 +12,8 @@ export interface VideoOptions {
   /** Petit côté de l'image en pixels (480, 720, 1080). */
   quality: number;
   audio: boolean;
+  /** Filigrane « Atelier Motion » (formule Gratuite). */
+  watermark: boolean;
 }
 
 export type ProgressFn = (ratio: number, label: string) => void;
@@ -49,8 +52,39 @@ function makeCanvas(comp: Composition, quality: number): HTMLCanvasElement {
   return canvas;
 }
 
+/** Filigrane discret en bas à droite (formule Gratuite). */
+export function drawWatermark(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d')!;
+  const size = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.032));
+  const pad = Math.round(size * 0.9);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.font = `700 ${size}px 'Inter Variable', Inter, system-ui, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+  const text = 'Réalisé avec Atelier Motion';
+  const w = ctx.measureText(text).width;
+  const x = canvas.width - pad;
+  const y = canvas.height - pad;
+  ctx.globalAlpha = 0.82;
+  ctx.fillStyle = 'rgba(10,31,68,0.55)';
+  const h = size * 1.6;
+  ctx.beginPath();
+  ctx.roundRect(x - w - size * 0.7, y - size * 1.15, w + size * 1.4, h, size * 0.4);
+  ctx.fill();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+function renderFrame(canvas: HTMLCanvasElement, project: Project, comp: Composition, t: number, watermark: boolean) {
+  renderToCanvas(canvas, project, comp, t);
+  if (watermark) drawWatermark(canvas);
+}
+
 async function prepare(project: Project) {
   await preloadImages(project.assets);
+  await registerFonts(project.assets);
   await document.fonts?.ready;
 }
 
@@ -99,7 +133,7 @@ async function exportWebm(project: Project, comp: Composition, opts: VideoOption
   for (let i = 0; i < total; i++) {
     if (signal.aborted) throw new ExportCancelled();
     if (encodeError) throw encodeError;
-    renderToCanvas(canvas, project, comp, i / opts.fps);
+    renderFrame(canvas, project, comp, i / opts.fps, opts.watermark);
     const frame = new VideoFrame(canvas, { timestamp: Math.round((i * 1e6) / opts.fps), duration: Math.round(1e6 / opts.fps) });
     encoder.encode(frame, { keyFrame: i % (opts.fps * 2) === 0 });
     frame.close();
@@ -176,7 +210,7 @@ async function exportWithMediaRecorder(
       if (signal.aborted) return reject(new ExportCancelled());
       const t = (performance.now() - start) / 1000;
       if (t >= comp.duration) return resolve();
-      renderToCanvas(canvas, project, comp, t);
+      renderFrame(canvas, project, comp, t, opts.watermark);
       progress(t / comp.duration, 'Enregistrement en temps réel…');
       requestAnimationFrame(tick);
     };
@@ -190,8 +224,92 @@ async function exportWithMediaRecorder(
   return new Blob(chunks, { type: 'video/webm' });
 }
 
-/** MP4 (H.264 + AAC) via ffmpeg.wasm, chargé à la demande. */
+/** Profil H.264 High adapté à la définition et à la cadence. */
+export function avcCodec(height: number, fps: number): string {
+  if (height > 1080) return fps > 30 ? 'avc1.640034' : 'avc1.640033'; // niveaux 5.2 / 5.1
+  return fps > 30 ? 'avc1.64002A' : 'avc1.640028'; // niveaux 4.2 / 4.0
+}
+
+/** MP4 via WebCodecs + mp4-muxer quand le navigateur sait encoder en H.264 (et en AAC si besoin). */
+async function exportMp4WebCodecs(
+  project: Project,
+  comp: Composition,
+  opts: VideoOptions,
+  audio: AudioBuffer | null,
+  progress: ProgressFn,
+  signal: AbortSignal,
+): Promise<Blob | null> {
+  if (typeof VideoEncoder === 'undefined') return null;
+  const canvas = makeCanvas(comp, opts.quality);
+  const codec = avcCodec(Math.min(canvas.width, canvas.height), opts.fps);
+  const bitrate = Math.round(canvas.width * canvas.height * opts.fps * 0.12);
+  const videoConfig: VideoEncoderConfig = { codec, width: canvas.width, height: canvas.height, framerate: opts.fps, bitrate, avc: { format: 'avc' } };
+  try {
+    if (!(await VideoEncoder.isConfigSupported(videoConfig)).supported) return null;
+    if (audio) {
+      if (typeof AudioEncoder === 'undefined') return null;
+      const a = await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192_000 });
+      if (!a.supported) return null;
+    }
+  } catch {
+    return null;
+  }
+  const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec: 'avc', width: canvas.width, height: canvas.height, frameRate: opts.fps },
+    audio: audio ? { codec: 'aac', sampleRate: 48000, numberOfChannels: 2 } : undefined,
+    fastStart: 'in-memory',
+  });
+  let encodeError: unknown = null;
+  const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => (encodeError = e) });
+  encoder.configure(videoConfig);
+  const total = frameCount(comp, opts.fps);
+  for (let i = 0; i < total; i++) {
+    if (signal.aborted) throw new ExportCancelled();
+    if (encodeError) throw encodeError;
+    renderFrame(canvas, project, comp, i / opts.fps, opts.watermark);
+    const frame = new VideoFrame(canvas, { timestamp: Math.round((i * 1e6) / opts.fps), duration: Math.round(1e6 / opts.fps) });
+    encoder.encode(frame, { keyFrame: i % (opts.fps * 2) === 0 });
+    frame.close();
+    while (encoder.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 2));
+    if (i % 4 === 0) {
+      progress(i / total, `Encodage H.264 — image ${i + 1} / ${total}`);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  await encoder.flush();
+  encoder.close();
+  if (audio) {
+    progress(0.97, 'Encodage du son (AAC)…');
+    let err: unknown = null;
+    const enc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => (err = e) });
+    enc.configure({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192_000 });
+    const left = audio.getChannelData(0);
+    const right = audio.numberOfChannels > 1 ? audio.getChannelData(1) : left;
+    for (let i = 0; i < audio.length; i += 4800) {
+      const n = Math.min(4800, audio.length - i);
+      const data = new Float32Array(n * 2);
+      data.set(left.subarray(i, i + n), 0);
+      data.set(right.subarray(i, i + n), n);
+      const ad = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round((i / 48000) * 1e6), data });
+      enc.encode(ad);
+      ad.close();
+    }
+    await enc.flush();
+    enc.close();
+    if (err) throw err;
+  }
+  muxer.finalize();
+  progress(1, 'Terminé');
+  return new Blob([muxer.target.buffer], { type: 'video/mp4' });
+}
+
+/** MP4 (H.264 + AAC) : WebCodecs si disponible, sinon ffmpeg.wasm chargé à la demande. */
 async function exportMp4(project: Project, comp: Composition, opts: VideoOptions, progress: ProgressFn, signal: AbortSignal): Promise<Blob> {
+  const mixed = opts.audio ? await renderAudio(project, comp) : null;
+  const fast = await exportMp4WebCodecs(project, comp, opts, mixed, progress, signal);
+  if (fast) return fast;
   progress(0, 'Chargement de ffmpeg.wasm (≈ 30 Mo, une seule fois)…');
   const [{ FFmpeg }, coreMod, wasmMod] = await Promise.all([
     import('@ffmpeg/ffmpeg'),
@@ -207,13 +325,14 @@ async function exportMp4(project: Project, comp: Composition, opts: VideoOptions
     const total = frameCount(comp, opts.fps);
     for (let i = 0; i < total; i++) {
       if (signal.aborted) throw new ExportCancelled();
-      renderToCanvas(canvas, project, comp, i / opts.fps);
-      const blob = await new Promise<Blob>((r, j) => canvas.toBlob((b) => (b ? r(b) : j(new Error('Image vide'))), 'image/jpeg', 0.93));
+      renderFrame(canvas, project, comp, i / opts.fps, opts.watermark);
+      // En 4K, une qualité JPEG un peu plus basse limite la mémoire utilisée par ffmpeg.wasm.
+      const blob = await new Promise<Blob>((r, j) => canvas.toBlob((b) => (b ? r(b) : j(new Error('Image vide'))), 'image/jpeg', canvas.height * canvas.width > 4e6 ? 0.85 : 0.93));
       await ffmpeg.writeFile(`f${String(i).padStart(5, '0')}.jpg`, new Uint8Array(await blob.arrayBuffer()));
       if (i % 3 === 0) progress((i / total) * 0.6, `Rendu des images ${i + 1} / ${total}`);
     }
     const args = ['-framerate', String(opts.fps), '-i', 'f%05d.jpg'];
-    const audio = opts.audio ? await renderAudio(project, comp) : null;
+    const audio = mixed;
     if (audio) {
       const chans = [audio.getChannelData(0), audio.numberOfChannels > 1 ? audio.getChannelData(1) : audio.getChannelData(0)];
       await ffmpeg.writeFile('son.wav', encodeWav(chans, audio.sampleRate));

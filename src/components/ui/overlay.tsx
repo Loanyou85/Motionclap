@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../../store/store';
 import { Icon } from './Icon';
 
+const modalStack: object[] = [];
+
 /** Fenêtre modale centrée. */
 export function Modal({
   title,
@@ -16,8 +18,22 @@ export function Modal({
   width?: number;
   footer?: ReactNode;
 }) {
+  // Seule la fenêtre du dessus réagit à Échap (fenêtres empilées).
+  const token = useRef<object>({});
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const me = token.current;
+    modalStack.push(me);
+    return () => {
+      modalStack.splice(modalStack.indexOf(me), 1);
+    };
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && modalStack[modalStack.length - 1] === token.current) {
+        e.stopPropagation();
+        onClose();
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);

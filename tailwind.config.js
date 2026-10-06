@@ -16,7 +16,7 @@ export default {
         line: 'rgb(var(--am-border-rgb) / <alpha-value>)', // #E2E8F0
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['"Inter Variable"', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       borderRadius: {

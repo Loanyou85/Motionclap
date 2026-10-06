@@ -5,7 +5,11 @@ import type { Project } from '../../engine/types';
 import { SHORTCUTS } from '../../hooks/useShortcuts';
 import { downloadText, slug } from '../../lib/download';
 import { renderToCanvas } from '../../render/renderer';
-import { deleteProject, listProjects, loadProject, saveProject, type ProjectSummary } from '../../store/persistence';
+import { deleteProject, listProjects, loadProject, saveProject } from '../../store/persistence';
+import { useEntitlements } from '../../account/auth';
+import { deleteCloudProject, isCloudActive, listCloudProjects, loadCloudProject, saveCloudProject } from '../../account/cloud';
+import { canCreateProject, requireFeature } from '../../billing/gates';
+import { FREE_TEMPLATE_IDS } from '../../billing/plans';
 import { useStore } from '../../store/store';
 import { TEMPLATES } from '../../templates';
 import { Icon } from '../ui/Icon';
@@ -34,8 +38,10 @@ function confirmReplace(): boolean {
 
 export function TemplatesDialog() {
   const st = useStore.getState();
+  const ent = useEntitlements();
   const [built] = useState(() => TEMPLATES.map((t) => ({ t, project: t.build() })));
-  const open = (build: () => Project, autoplay: boolean) => {
+  const open = async (build: () => Project, autoplay: boolean) => {
+    if (!(await canCreateProject())) return;
     if (!confirmReplace()) return;
     st.loadProject(build());
     st.openDialog(null);
@@ -50,7 +56,7 @@ export function TemplatesDialog() {
           <button
             key={f.id}
             className="group flex flex-col overflow-hidden rounded-am border border-dashed border-line bg-canvas text-left transition hover:border-accent"
-            onClick={() => open(() => createProject('Projet sans titre', createComposition({ width: f.width, height: f.height })), false)}
+            onClick={() => void open(() => createProject('Projet sans titre', createComposition({ width: f.width, height: f.height })), false)}
           >
             <div className="flex h-[120px] items-center justify-center">
               <span className="rounded border-2 border-primary/40 bg-white" style={{ width: (f.width / Math.max(f.width, f.height)) * 90, height: (f.height / Math.max(f.width, f.height)) * 90 }} />
@@ -63,8 +69,23 @@ export function TemplatesDialog() {
             </div>
           </button>
         ))}
-        {built.map(({ t, project }) => (
-          <button key={t.id} className="group flex flex-col overflow-hidden rounded-am border border-line bg-surface text-left shadow-soft transition hover:border-accent hover:shadow-pop" onClick={() => open(t.build, true)}>
+        {built.map(({ t, project }) => {
+          const locked = !ent.allTemplates && !FREE_TEMPLATE_IDS.includes(t.id);
+          return (
+          <button
+            key={t.id}
+            className="group relative flex flex-col overflow-hidden rounded-am border border-line bg-surface text-left shadow-soft transition hover:border-accent hover:shadow-pop"
+            onClick={() => {
+              if (locked && !requireFeature((e) => e.allTemplates, `Le modèle « ${t.name} » fait partie des modèles inclus dans la formule Pro.`)) return;
+              void open(t.build, true);
+            }}
+          >
+            {locked && (
+              <span className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-white">
+                <Icon name="lock" size={11} />
+                Pro
+              </span>
+            )}
             <div className="flex h-[150px] items-center justify-center bg-canvas p-2">
               <Thumbnail project={project} time={Math.min(2.2, project.compositions[0].duration * 0.6)} />
             </div>
@@ -76,27 +97,48 @@ export function TemplatesDialog() {
               <p className="mt-0.5 text-[12px] leading-snug text-muted">{t.description}</p>
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
     </Modal>
   );
 }
 
+interface Row {
+  id: string;
+  name: string;
+  updatedAt: number;
+  detail: string;
+}
+
 export function ProjectsDialog() {
   const st = useStore.getState();
   const current = useStore((s) => s.project);
-  const [list, setList] = useState<ProjectSummary[] | null>(null);
+  const ent = useEntitlements();
+  const cloud = isCloudActive();
+  const [list, setList] = useState<Row[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const refresh = () => void listProjects().then(setList).catch(() => setList([]));
-  useEffect(refresh, []);
+  const refresh = () => {
+    const job: Promise<Row[]> = cloud
+      ? listCloudProjects().then((l) =>
+          l.map((p) => ({ id: p.id, name: p.name, updatedAt: Date.parse(p.updated_at), detail: `${(p.size_bytes / 1024).toFixed(0)} Ko en ligne` })),
+        )
+      : listProjects().then((l) => l.map((p) => ({ id: p.id, name: p.name, updatedAt: p.updatedAt, detail: `${p.layerCount} calque${p.layerCount > 1 ? 's' : ''}` })));
+    job.then(setList).catch((e) => {
+      st.notify(`Liste indisponible : ${(e as Error).message}`, 'error');
+      setList([]);
+    });
+  };
+  useEffect(refresh, [cloud]);
 
   const openProject = async (id: string) => {
     if (id === current.id) return st.openDialog(null);
     if (!confirmReplace()) return;
-    const p = await loadProject(id);
+    const p = cloud ? await loadCloudProject(id) : await loadProject(id);
     if (!p) return st.notify('Projet introuvable.', 'error');
     st.loadProject(p);
     useStore.setState({ saveStatus: 'saved' });
+    if (cloud) await saveProject(p);
     st.openDialog(null);
   };
 
@@ -104,11 +146,14 @@ export function ProjectsDialog() {
     try {
       const data = JSON.parse(await file.text());
       if (!isProject(data)) throw new Error('ce fichier n’est pas un projet Atelier Motion');
+      if (!(await canCreateProject())) return;
       // Nouvel identifiant pour ne pas écraser un projet existant.
       const p: Project = { ...data, id: uid('p'), updatedAt: Date.now() };
       if (!confirmReplace()) return;
       st.loadProject(p);
       await saveProject(p);
+      if (cloud) await saveCloudProject(p);
+      useStore.setState({ saveStatus: 'saved' });
       st.notify(`Projet « ${p.name} » importé.`);
       st.openDialog(null);
     } catch (e) {
@@ -116,6 +161,7 @@ export function ProjectsDialog() {
     }
   };
 
+  const max = ent.maxProjects;
   return (
     <Modal
       title="Projets"
@@ -132,21 +178,25 @@ export function ProjectsDialog() {
             <Icon name="download" />
             Exporter le projet
           </button>
-          <button
-            className="btn-primary"
-            onClick={() => {
-              st.openDialog('templates');
-            }}
-          >
+          <button className="btn-primary" onClick={() => st.openDialog('templates')}>
             <Icon name="plus" />
             Nouveau projet
           </button>
         </>
       }
     >
-      <p className="mb-3 text-[13px] text-muted">
-        Vos projets sont enregistrés automatiquement dans ce navigateur (IndexedDB). Exportez-les en JSON pour les sauvegarder ou les partager.
-      </p>
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <p className="text-[13px] text-muted">
+          {cloud
+            ? 'Vos projets sont enregistrés automatiquement en ligne et retrouvés sur tous vos appareils.'
+            : 'Vos projets sont enregistrés automatiquement dans ce navigateur (IndexedDB). Exportez-les en JSON pour les sauvegarder ou les partager.'}
+        </p>
+        {list && max !== null && (
+          <span className={`chip shrink-0 ${list.length >= max ? '!bg-amber-100 !text-amber-800' : ''}`} data-testid="project-quota">
+            {list.length} / {max} projets
+          </span>
+        )}
+      </div>
       {list === null ? (
         <p className="py-8 text-center text-muted">Chargement…</p>
       ) : list.length === 0 ? (
@@ -163,7 +213,7 @@ export function ProjectsDialog() {
                   {p.name} {p.id === current.id && <span className="chip ml-1">ouvert</span>}
                 </p>
                 <p className="text-[12px] text-muted">
-                  {p.layerCount} calque{p.layerCount > 1 ? 's' : ''} · modifié le {new Date(p.updatedAt).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                  {p.detail} · modifié le {new Date(p.updatedAt).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
                 </p>
               </div>
               <button className="btn-outline h-7 px-2.5 text-[12px]" onClick={() => openProject(p.id)}>
@@ -172,9 +222,11 @@ export function ProjectsDialog() {
               <button
                 className="icon-btn hover:!bg-red-50 hover:!text-red-600"
                 title="Supprimer"
+                aria-label={`Supprimer ${p.name}`}
                 disabled={p.id === current.id}
                 onClick={async () => {
                   if (!window.confirm(`Supprimer définitivement « ${p.name} » ?`)) return;
+                  if (cloud) await deleteCloudProject(p.id);
                   await deleteProject(p.id);
                   refresh();
                 }}

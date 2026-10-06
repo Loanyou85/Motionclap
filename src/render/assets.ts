@@ -15,6 +15,10 @@ export function onAssetLoaded(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
+export function notifyAssetsChanged() {
+  notify();
+}
+
 function notify() {
   for (const fn of listeners) fn();
 }

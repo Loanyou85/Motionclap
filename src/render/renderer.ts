@@ -71,13 +71,21 @@ function charWidth(font: string, ch: string): number {
   return w;
 }
 
+/** À appeler quand une police est ajoutée (mesures des lettres à recalculer). */
+export function clearTextMetrics(): void {
+  widthCache.clear();
+}
+
 /** Les polices web se chargent après le premier rendu : on vide le cache à ce moment. */
 if (typeof document !== 'undefined' && document.fonts) {
   document.fonts.addEventListener?.('loadingdone', () => widthCache.clear());
 }
 
 export function fontString(layer: Layer, size: number): string {
-  return `${layer.fontWeight ?? 700} ${size}px ${layer.fontFamily ?? 'Inter'}, system-ui, sans-serif`;
+  const family = layer.fontFamily ?? 'Inter';
+  // Inter est auto-hébergée sous le nom « Inter Variable ».
+  const css = family === 'Inter' ? "'Inter Variable', Inter" : `'${family}'`;
+  return `${layer.fontWeight ?? 700} ${size}px ${css}, system-ui, sans-serif`;
 }
 
 export interface GlyphLayout {

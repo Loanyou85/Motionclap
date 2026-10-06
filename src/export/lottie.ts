@@ -220,6 +220,8 @@ function textLayerData(ctx: LottieCtx, layer: Layer, st: BuildState): { t: Json;
   const family = layer.fontFamily ?? 'Inter';
   const weight = layer.fontWeight ?? 700;
   const fName = `${family.replace(/\s+/g, '')}-${weight}`;
+  if (st.project.assets.some((a) => a.kind === 'font' && a.family === family))
+    st.warnings.add(`Lottie : la police personnalisée « ${family} » doit être installée sur l’appareil de lecture.`);
   st.fonts.set(fName, { fName, fFamily: family, fStyle: weight >= 600 ? 'Bold' : 'Regular', ascent: 72, fWeight: String(weight), origin: 0 });
   if ((layer.props.fontSize?.keyframes.length ?? 0) > 1) st.warnings.add('Lottie : la taille de texte animée est exportée à sa valeur initiale.');
   const lines = (layer.text ?? '').split('\n');

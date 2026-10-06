@@ -1,0 +1,15 @@
+# Configuration Supabase CLI (extrait). Lancez `supabase init` puis fusionnez si besoin.
+project_id = "atelier-motion"
+
+[auth]
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/app", "http://localhost:5173/reinitialisation"]
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+
+# Stripe signe ses requêtes : pas de JWT Supabase pour le webhook.
+[functions.stripe-webhook]
+verify_jwt = false

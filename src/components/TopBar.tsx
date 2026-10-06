@@ -1,6 +1,8 @@
 import { activeComp, useStore } from '../store/store';
 import { Icon } from './ui/Icon';
 import { TextField } from './ui/fields';
+import { EditorAccountMenu } from './marketing/Site';
+import { Link } from '../router';
 
 export function formatTime(t: number, fps: number): string {
   const s = Math.floor(t + 1e-6);
@@ -30,14 +32,14 @@ export function TopBar() {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 bg-navy px-4 text-white">
-      <div className="flex items-center gap-2.5">
+      <Link to="/" className="flex items-center gap-2.5" title="Accueil">
         <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
           <rect width="32" height="32" rx="8" fill="#1E5EFF" />
           <path d="M8 22 L13 10 L18 22 M15.5 17 H10.5" stroke="#fff" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           <circle cx="23" cy="20" r="3" fill="#DBEAFE" />
         </svg>
         <span className="text-[15px] font-semibold tracking-tight">Atelier Motion</span>
-      </div>
+      </Link>
       <span className="h-6 w-px bg-white/15" />
       <div className="flex min-w-0 items-center gap-2">
         <TextField
@@ -110,6 +112,8 @@ export function TopBar() {
           Exporter
         </button>
       </div>
+      <span className="h-6 w-px bg-white/15" />
+      <EditorAccountMenu />
     </header>
   );
 }

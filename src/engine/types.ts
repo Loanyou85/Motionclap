@@ -138,7 +138,7 @@ export interface Composition {
   audio: AudioTrack | null;
 }
 
-export type AssetKind = 'image' | 'audio';
+export type AssetKind = 'image' | 'audio' | 'font';
 
 export interface Asset {
   id: string;
@@ -149,6 +149,8 @@ export interface Asset {
   width?: number;
   height?: number;
   duration?: number;
+  /** Polices : nom de famille utilisé par les calques texte. */
+  family?: string;
 }
 
 export interface Project {

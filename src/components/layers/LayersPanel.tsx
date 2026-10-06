@@ -127,7 +127,7 @@ export function LayersPanel() {
                 }}
               >
                 <Icon name="upload" className="text-primary" />
-                Importer image, SVG ou audio…
+                Importer SVG, son, image ou police…
               </button>
               {otherComps.length > 0 && <div className="my-1 border-t border-line" />}
               {otherComps.map((c) => (
@@ -151,7 +151,7 @@ export function LayersPanel() {
           ref={fileRef}
           type="file"
           className="hidden"
-          accept="image/*,.svg,audio/*"
+          accept="image/*,.svg,audio/*,.woff2,.woff,.ttf,.otf"
           multiple
           onChange={(e) => {
             for (const f of Array.from(e.target.files ?? [])) void importFile(f);

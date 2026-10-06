@@ -10,16 +10,93 @@ groupes, parentage, masques, précompositions, piste audio, et exports
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # tests Vitest (moteur, structure, store, exports)
+npm test           # tests Vitest (moteur, exports, store, facturation, blocages, sécurité)
+npm run test:db    # migration Supabase testée sur un Postgres temporaire (binaires PostgreSQL requis)
 npm run build      # vérification TypeScript + build de production
 ```
 
-Au premier lancement, le modèle « Intro logo » est ouvert. Ensuite, le dernier projet
-est rouvert automatiquement : chaque modification est enregistrée dans le navigateur (IndexedDB).
+Sans configuration, l’application tourne en **mode local** : pas de comptes, projets dans le
+navigateur, formule Gratuite. En développement, la page « Mon compte » permet de **simuler une
+formule** (Gratuit, Pro, Studio) pour tester les blocages sans Stripe ; cet outil n’existe pas en production.
+
+## Abonnements : mise en service
+
+Les clés vont dans des fichiers `.env` ignorés par git, jamais dans le code
+(un test échoue si une clé secrète apparaît dans le dépôt).
+
+| Fichier | Contenu | Où |
+| --- | --- | --- |
+| `.env.local` (copie de `.env.example`) | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (publiques, protégées par la RLS) | navigateur |
+| `supabase/functions/.env` (copie de l’exemple) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_STUDIO`, `STRIPE_PORTAL_CONFIGURATION`, `SITE_URL` | fonctions Edge uniquement |
+
+1. **Supabase** : créez un projet (de préférence dans une région européenne), puis
+   ```bash
+   npx supabase link --project-ref <ref>
+   npx supabase db push            # applique supabase/migrations
+   ```
+   Dans *Authentication › URL Configuration*, indiquez l’URL du site et ajoutez `…/app` et `…/reinitialisation` aux URL de redirection.
+2. **Google** : créez un identifiant OAuth (Google Cloud › API et services), avec l’URI de redirection
+   `https://<ref>.supabase.co/auth/v1/callback`, puis activez le fournisseur Google dans *Authentication › Providers*.
+3. **Stripe, en mode test** : copiez la clé `sk_test_…` dans `supabase/functions/.env`, puis
+   ```bash
+   npm run stripe:setup            # crée Pro 9,99 € et Studio 24,99 € (TTC, mensuels) et le portail client
+   ```
+   Reportez les identifiants affichés (`STRIPE_PRICE_PRO`, `STRIPE_PRICE_STUDIO`, `STRIPE_PORTAL_CONFIGURATION`) dans le même fichier.
+4. **Webhook** : dans le tableau de bord Stripe (mode test), ajoutez l’URL
+   `https://<ref>.supabase.co/functions/v1/stripe-webhook` avec les événements `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`,
+   `invoice.paid` et `invoice.payment_failed`, puis copiez le secret de signature (`whsec_…`) dans `STRIPE_WEBHOOK_SECRET`.
+   En local : `stripe listen --forward-to http://127.0.0.1:54321/functions/v1/stripe-webhook`.
+5. **Déploiement des fonctions** :
+   ```bash
+   npx supabase secrets set --env-file supabase/functions/.env
+   npx supabase functions deploy create-checkout-session create-portal-session delete-account
+   npx supabase functions deploy stripe-webhook --no-verify-jwt
+   ```
+6. **Essai** : carte de test `4242 4242 4242 4242` (date future, CVC quelconque). Pour simuler un échec de
+   paiement à la fin de l’essai, utilisez `4000 0000 0000 0341`. Les horloges de test Stripe permettent d’avancer
+   le temps pour vérifier le renouvellement, l’impayé et la coupure d’accès.
+7. **Mise en production** : complétez `src/pages/legal/legalInfo.ts` et faites relire les textes légaux, désignez un
+   médiateur de la consommation, puis passez aux clés live (`STRIPE_ALLOW_LIVE=true`, `npm run stripe:setup -- --live`).
+   Les clés `sk_live_` sont refusées tant que ce n’est pas fait.
+
+L’application est une SPA : `public/_redirects` (Netlify) et `vercel.json` (Vercel) renvoient toutes les routes vers `index.html`.
+
+### Fonctionnement
+
+- **Formules** : définies une seule fois dans `supabase/functions/_shared/plans.ts`, que partagent l’application et les
+  fonctions Edge. Les limites SQL (projets, stockage) en sont la copie, et `npm run test:db` vérifie qu’elles concordent.
+
+  | | Gratuit | Pro — 9,99 €/mois | Studio — 24,99 €/mois |
+  | --- | --- | --- | --- |
+  | Projets | 3 | illimités | illimités |
+  | Vidéo | WebM 720p, filigrane | MP4 + WebM 1080p | MP4 + WebM 4K |
+  | HTML/CSS, GSAP, Lottie | — | oui | oui |
+  | Modèles | essentiels | tous | tous |
+  | Polices et images perso | — | — | oui |
+  | Stockage en ligne | 100 Mo | 1 Go | 5 Go |
+  | Essai gratuit | — | 7 jours, une fois par compte | — |
+
+- **Paiement** : `create-checkout-session` crée le client Stripe et la session Checkout (essai de 7 jours sur Pro si
+  jamais utilisé, CGV acceptées dans l’application). Un abonné qui change de formule est envoyé vers le portail client
+  (prorata calculé par Stripe). `create-portal-session` ouvre le portail : changement de formule, carte, factures, résiliation.
+- **Webhooks** : `stripe-webhook` vérifie la signature, ignore les événements déjà traités et relit toujours l’abonnement
+  chez Stripe, si bien que l’ordre d’arrivée n’a pas d’importance. Il met ensuite la table `subscriptions` à jour.
+  Accès accordé pour les statuts `active`, `trialing` et `past_due` (pendant les relances), coupé pour `unpaid`,
+  `canceled` et `incomplete_expired`. Le cœur (`_shared/billing.ts`) est testé sans réseau.
+- **Base** : `subscriptions` est en lecture seule pour l’utilisateur (seul le webhook écrit). `projects` est protégée par
+  la RLS, avec un déclencheur qui impose la limite de projets et le quota. Le bucket privé `assets` est rangé en
+  `<user_id>/<audio|images|fonts>/…`, et les images et polices n’y sont acceptées qu’en Studio.
+- **Blocages dans l’éditeur** : exports web, MP4, définitions, modèles, polices et images ouvrent la fenêtre « Passer à Pro »
+  avec la formule minimale nécessaire. Les exports étant calculés dans le navigateur, ce contrôle est côté client ;
+  les limites de projets et de stockage sont, elles, garanties par la base.
+- **RGPD** : police Inter hébergée par l’application, aucun traceur, export de toutes les données et suppression du compte
+  (`delete-account` : résiliation, fichiers, compte) depuis « Mon compte ».
 
 ## Stack
 
-- Vite, React 19, TypeScript (strict)
+- Vite, React 19, TypeScript (strict), routeur minimal maison (API History)
+- Supabase (Auth email + Google, Postgres avec RLS, Storage, fonctions Edge Deno) et Stripe (Checkout, portail client, webhooks)
 - Zustand pour l'état, avec un historique annuler/rétablir fondé sur des instantanés immuables (immer)
 - Tailwind CSS 3 : la charte est déclarée en variables CSS (`src/index.css`) et reprise dans `tailwind.config.js`
 - Rendu de la scène en Canvas 2D
@@ -47,37 +124,26 @@ Police Inter, coins arrondis de 8 px, ombres douces. Chaque couleur existe aussi
 ```
 src/
 ├── engine/            Moteur d'animation, sans DOM, entièrement testé
-│   ├── types.ts         Modèle de données (projet, compositions, calques, images clés)
-│   ├── props.ts         Registre des propriétés animables et des propriétés par type de calque
-│   ├── easing.ts        Courbes : linéaire, ease, cubic-bezier, back, élastique, rebond, maintien
-│   ├── interpolate.ts   Interpolation des nombres, couleurs et tracés
-│   ├── path.ts          Analyse SVG (y compris les arcs), normalisation et morphing de tracés
-│   ├── color.ts         Couleurs (hexadécimal, rgba, interpolation prémultipliée)
-│   ├── evaluate.ts      Évaluation à l'instant t, matrices monde, parentage
-│   ├── matrix.ts        Matrices affines 2D
-│   ├── keyframes.ts     Création, déplacement et suppression des images clés
-│   ├── structure.ts     Ordre, groupes, parentage, duplication, précompositions
-│   ├── text.ts          Animation lettre par lettre (machine à écrire, fondu, vague)
-│   ├── presets.ts       Préréglages en un clic
-│   ├── shapes.ts        Étoiles, polygones, rectangles arrondis
-│   ├── audio.ts         Crêtes de forme d'onde
-│   └── defaults.ts      Formats (16:9, 9:16, 1:1) et fabriques
-├── render/            Rendu Canvas 2D, test de clic, cache des ressources
-├── store/             Store Zustand (historique, sélection, lecture) et persistance IndexedDB
-├── export/            Exports HTML/CSS, GSAP, Lottie, vidéo (MP4/WebM), WAV
+├── render/            Rendu Canvas 2D, test de clic, ressources, polices personnalisées
+├── store/             Store Zustand (historique, sélection, lecture) et persistance IndexedDB par compte
+├── export/            Exports HTML/CSS, GSAP, Lottie, vidéo (MP4/WebM, filigrane, 4K), WAV
+├── account/           Session et abonnement (auth.ts), projets et ressources en ligne (cloud.ts)
+├── billing/           Formules (plans.ts) et blocages (gates.ts : « Passer à Pro », limite de projets)
+├── pages/             Accueil, éditeur, connexion, compte, retour de paiement, pages légales
+├── components/        Interface : éditeur, billing/ (fenêtre d'abonnement, cartes), marketing/ (site, démo animée)
 ├── templates/         Modèles de départ
-├── lib/               Import de fichiers (image, SVG, audio), téléchargements
-├── hooks/             Lecture temps réel synchronisée au son, raccourcis clavier
-└── components/        Interface React
-    ├── TopBar.tsx       Nom du projet, annuler/rétablir, lecture, export
-    ├── layers/          Panneau des calques
-    ├── stage/           Scène et barre d'outils (formats, zoom, repères, magnétisme)
-    ├── properties/      Propriétés, préréglages, liens (parent, masque), durée de vie
-    ├── timeline/        Règle, tête de lecture, pistes, images clés, piste audio
-    ├── curve/           Éditeur de courbe visuel
-    ├── export/          Fenêtre d'export avec aperçus et bouton Copier
-    ├── projects/        Projets, modèles, raccourcis
-    └── ui/              Icônes, champs, menus, fenêtres modales
+├── lib/               Supabase, import de fichiers, téléchargements
+├── hooks/             Lecture temps réel, raccourcis clavier
+└── router.tsx         Routeur minimal
+supabase/
+├── migrations/        Schéma : profils, abonnements, projets, quotas, bucket, RLS
+├── functions/         Fonctions Edge (Deno) : checkout, portail, webhook Stripe, suppression de compte
+│   └── _shared/       plans.ts (formules) et billing.ts (logique des webhooks, testée)
+├── tests/             Bouchons Supabase et vérifications SQL (npm run test:db)
+└── config.toml
+scripts/
+├── stripe-setup.mjs   Produits, prix et portail Stripe (mode test par défaut)
+└── test-db.mjs        Postgres temporaire + migration + vérifications
 ```
 
 ## Fonctionnalités

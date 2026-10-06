@@ -234,6 +234,15 @@ function itemHtml(b: CssBuilder, item: RenderItem, project: Project): string {
   return `  <!-- ${escapeHtml(item.layer.name)} -->\n  ${open}${visualHtml(b, item, project)}${close}`;
 }
 
+/** @font-face des polices personnalisées utilisées par les calques texte. */
+export function fontFaceCss(project: Project): string {
+  const used = new Set(project.compositions.flatMap((c) => c.layers.filter((l) => l.type === 'text').map((l) => l.fontFamily)));
+  return project.assets
+    .filter((a) => a.kind === 'font' && a.family && used.has(a.family))
+    .map((a) => `@font-face { font-family: '${a.family}'; src: url(${a.src}); font-display: block; }`)
+    .join('\n');
+}
+
 const BASE_CSS = (comp: Composition) => `.am-stage { position: relative; width: ${comp.width}px; height: ${comp.height}px; overflow: hidden; background: ${cssColor(comp.background)}; font-family: Inter, system-ui, sans-serif; }
 .am-stage *, .am-stage *::before, .am-stage *::after { box-sizing: border-box; }
 .am-t { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; }
@@ -249,7 +258,7 @@ export function buildWebScene(project: Project, comp: Composition, opts: WebExpo
   const items = collectItems(ctx, comp);
   for (const it of items) itemRules(b, it);
   const html = `<div class="am-stage" role="img" aria-label="${escapeHtml(comp.name)}">\n${items.map((it) => itemHtml(b, it, project)).join('\n')}\n</div>`;
-  const css = `${BASE_CSS(comp)}\n\n${b.rules.join('\n')}\n\n${b.keyframes.join('\n\n')}`;
+  const css = `${fontFaceCss(project)}\n${BASE_CSS(comp)}\n\n${b.rules.join('\n')}\n\n${b.keyframes.join('\n\n')}`;
   if (items.some((i) => (isSvgLayer(i.layer) && Object.keys(i.layer.props).some((k) => ['path', 'points', 'radius', 'innerRadius'].includes(k) && (i.layer.props[k as 'path']?.keyframes.length ?? 0) > 1))))
     ctx.warnings.add('Le morphing de tracé utilise la propriété CSS « d » : Chrome, Edge et Firefox (pas Safari).');
   return { css, html, warnings: [...ctx.warnings] };

@@ -3,7 +3,7 @@ import { getNum } from '../engine/evaluate';
 import { letterStates } from '../engine/text';
 import type { Composition, Easing, Layer, Project } from '../engine/types';
 import { channelTrack, cssColor, isSvgLayer, nodeChannels, shapeD, shapeKeys, visualChannels, type Channel } from './channels';
-import type { ExportResult, WebExportOptions } from './css';
+import { fontFaceCss, type ExportResult, type WebExportOptions } from './css';
 import { collectItems, createContext, escapeHtml, evalValues, num, sampleTimeline, type ExportContext, type RenderItem } from './model';
 
 /**
@@ -246,6 +246,7 @@ tl.set({}, {}, ${num(comp.duration, 4)});
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #F0F6FF; }
+${fontFaceCss(project)}
 ${staticCss(project, comp, items)}
 </style>
 </head>

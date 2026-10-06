@@ -8,6 +8,9 @@ import { ExportCancelled, exportVideo, type VideoFormat } from '../../export/vid
 import { outputSize } from '../../export/wav';
 import { copyText, downloadBlob, downloadText, slug } from '../../lib/download';
 import { activeComp, useStore } from '../../store/store';
+import { useEntitlements } from '../../account/auth';
+import { useUpgrade } from '../../billing/gates';
+import { minimumPlanFor, PLANS } from '../../billing/plans';
 import { Icon, type IconName } from '../ui/Icon';
 import { Modal } from '../ui/overlay';
 
@@ -125,12 +128,43 @@ function Warnings({ list }: { list: string[] }) {
   );
 }
 
+const QUALITIES: Array<{ value: number; label: string }> = [
+  { value: 480, label: '480p' },
+  { value: 720, label: '720p (HD)' },
+  { value: 1080, label: '1080p (Full HD)' },
+  { value: 2160, label: '2160p (4K)' },
+];
+
+/** Contenu affiché à la place d'un export réservé à une formule supérieure. */
+function LockedPanel({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-[12px] border border-dashed border-primary/40 bg-sky/40 px-6 py-10 text-center" data-testid="locked-export">
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white">
+        <Icon name="lock" />
+      </span>
+      <h3 className="text-[15px] font-semibold text-navy">{title}</h3>
+      <p className="max-w-md text-[13px] text-muted">{text}</p>
+      <button className="btn-primary" onClick={() => useUpgrade.getState().show(text, 'pro')}>
+        <Icon name="sparkles" size={14} />
+        Passer à Pro
+      </button>
+    </div>
+  );
+}
+
 function VideoPanel() {
   const project = useStore((s) => s.project);
   const comp = useStore((s) => activeComp(s));
-  const [format, setFormat] = useState<VideoFormat>('mp4');
+  const ent = useEntitlements();
+  const [format, setFormat] = useState<VideoFormat>(ent.videoFormats.includes('mp4') ? 'mp4' : 'webm');
   const [fps, setFps] = useState(comp.fps >= 24 ? comp.fps : 30);
-  const [quality, setQuality] = useState(1080);
+  const [quality, setQuality] = useState(Math.min(1080, ent.maxVideoHeight));
+  // La formule peut changer pendant que la fenêtre est ouverte (fin d'essai, abonnement…).
+  useEffect(() => {
+    if (!ent.videoFormats.includes(format)) setFormat(ent.videoFormats[0]);
+    if (quality > ent.maxVideoHeight) setQuality(ent.maxVideoHeight);
+  }, [ent, format, quality]);
+  const upgradeFor = (reason: string, needed: 'pro' | 'studio') => useUpgrade.getState().show(reason, needed);
   const [audio, setAudio] = useState(true);
   const [progress, setProgress] = useState<{ ratio: number; label: string } | null>(null);
   const [result, setResult] = useState<{ url: string; blob: Blob } | null>(null);
@@ -148,7 +182,13 @@ function VideoPanel() {
     abortRef.current = ctrl;
     setProgress({ ratio: 0, label: 'Préparation…' });
     try {
-      const blob = await exportVideo(project, comp, { format, fps, quality, audio }, (ratio, label) => setProgress({ ratio, label }), ctrl.signal);
+      const blob = await exportVideo(
+        project,
+        comp,
+        { format, fps, quality: Math.min(quality, ent.maxVideoHeight), audio, watermark: ent.watermark },
+        (ratio, label) => setProgress({ ratio, label }),
+        ctrl.signal,
+      );
       setResult({ blob, url: URL.createObjectURL(blob) });
     } catch (e) {
       if (!(e instanceof ExportCancelled) && !ctrl.signal.aborted) setError((e as Error).message || String(e));
@@ -164,8 +204,17 @@ function VideoPanel() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <label className="space-y-1">
           <span className="field-label">Format</span>
-          <select className="field" value={format} onChange={(e) => setFormat(e.target.value as VideoFormat)} disabled={!!progress}>
-            <option value="mp4">MP4 (H.264, ffmpeg.wasm)</option>
+          <select
+            className="field"
+            value={format}
+            disabled={!!progress}
+            onChange={(e) => {
+              const v = e.target.value as VideoFormat;
+              if (!ent.videoFormats.includes(v)) return upgradeFor('L’export MP4 (H.264) est inclus dans la formule Pro.', 'pro');
+              setFormat(v);
+            }}
+          >
+            <option value="mp4">MP4 (H.264){ent.videoFormats.includes('mp4') ? '' : ' — Pro'}</option>
             <option value="webm">WebM (VP9)</option>
           </select>
         </label>
@@ -181,10 +230,28 @@ function VideoPanel() {
         </label>
         <label className="space-y-1">
           <span className="field-label">Définition</span>
-          <select className="field" value={quality} onChange={(e) => setQuality(Number(e.target.value))} disabled={!!progress}>
-            <option value={480}>480p</option>
-            <option value={720}>720p (HD)</option>
-            <option value={1080}>1080p (Full HD)</option>
+          <select
+            className="field"
+            value={quality}
+            disabled={!!progress}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (v > ent.maxVideoHeight) {
+                const needed = minimumPlanFor((x) => x.maxVideoHeight >= v) === 'studio' ? 'studio' : 'pro';
+                return upgradeFor(`L’export en ${v}p est inclus dans la formule ${PLANS[needed].name}.`, needed);
+              }
+              setQuality(v);
+            }}
+          >
+            {QUALITIES.map((q) => {
+              const needed = minimumPlanFor((x) => x.maxVideoHeight >= q.value);
+              return (
+                <option key={q.value} value={q.value}>
+                  {q.label}
+                  {q.value > ent.maxVideoHeight && needed ? ` — ${PLANS[needed].name}` : ''}
+                </option>
+              );
+            })}
           </select>
         </label>
         <label className="space-y-1">
@@ -195,9 +262,20 @@ function VideoPanel() {
           </label>
         </label>
       </div>
+      {ent.watermark && (
+        <p className="flex items-center gap-2 rounded-am bg-sky/50 px-3 py-2 text-[12px] text-navy" data-testid="watermark-notice">
+          <Icon name="info" size={14} className="text-primary" />
+          Formule Gratuite : WebM 720p avec filigrane « Réalisé avec Atelier Motion ».
+          <button className="ml-auto font-medium text-accent underline" onClick={() => upgradeFor('Exportez en MP4 1080p sans filigrane avec la formule Pro.', 'pro')}>
+            Retirer le filigrane
+          </button>
+        </p>
+      )}
       <p className="text-[12px] text-muted">
         Sortie : {size.width}×{size.height} px · {comp.duration.toFixed(2)} s · {Math.round(comp.duration * fps)} images.{' '}
-        {format === 'mp4' ? 'Encodage local avec ffmpeg.wasm (le module est chargé au premier export).' : 'Encodage rapide via WebCodecs, ou capture en temps réel sinon.'}
+        {format === 'mp4'
+          ? 'Encodage H.264 local (WebCodecs, ou ffmpeg.wasm chargé au premier export).'
+          : 'Encodage rapide via WebCodecs, ou capture en temps réel sinon.'}
       </p>
 
       {progress ? (
@@ -240,10 +318,14 @@ export function ExportDialog() {
   const project = useStore((s) => s.project);
   const comp = useStore((s) => activeComp(s));
   const st = useStore.getState();
-  const [tab, setTab] = useState<Tab>('css');
+  const ent = useEntitlements();
+  const [tab, setTab] = useState<Tab>(ent.webExports ? 'css' : 'video');
   const [loop, setLoop] = useState(true);
+  const isLocked = (t: Tab) => !ent.webExports && (t === 'css' || t === 'gsap' || t === 'lottie');
+  const locked = isLocked(tab);
 
   const result = useMemo(() => {
+    if (locked) return null;
     try {
       if (tab === 'css') return { ...exportCss(project, comp, { loop }), filename: `${slug(project.name)}.html`, mime: 'text/html' };
       if (tab === 'gsap') return { ...exportGsap(project, comp, { loop }), filename: `${slug(project.name)}-gsap.html`, mime: 'text/html' };
@@ -256,15 +338,16 @@ export function ExportDialog() {
       return { code: `// Erreur : ${(e as Error).message}`, warnings: [], filename: 'erreur.txt', mime: 'text/plain' };
     }
     return null;
-  }, [tab, project, comp, loop]);
+  }, [tab, project, comp, loop, locked]);
 
   return (
     <Modal title={`Exporter « ${comp.name} »`} onClose={() => st.openDialog(null)} width={860}>
       <div className="mb-4 flex flex-wrap items-center gap-1" role="tablist">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab flex items-center gap-1.5 ${tab === t.id ? 'tab-active' : ''}`} onClick={() => setTab(t.id)}>
-            <Icon name={t.icon} size={14} />
+            <Icon name={isLocked(t.id) ? 'lock' : t.icon} size={14} />
             {t.label}
+            {isLocked(t.id) && <span className="ml-0.5 rounded bg-primary px-1 text-[10px] font-semibold text-white">PRO</span>}
           </button>
         ))}
         {(tab === 'css' || tab === 'gsap') && (
@@ -277,6 +360,11 @@ export function ExportDialog() {
 
       {tab === 'video' ? (
         <VideoPanel />
+      ) : locked ? (
+        <LockedPanel
+          title={`Export ${TABS.find((t) => t.id === tab)!.label} réservé aux formules payantes`}
+          text="Les exports HTML/CSS, GSAP et Lottie sont inclus dans la formule Pro (9,99 €/mois, 7 jours d’essai gratuit)."
+        />
       ) : (
         result && (
           <div className="space-y-3">
