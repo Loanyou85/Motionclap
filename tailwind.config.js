@@ -6,14 +6,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: 'var(--am-primary)', // #1E5EFF
-        navy: 'var(--am-navy)', // #0A1F44
-        accent: 'var(--am-accent)', // #3B82F6
-        sky: 'var(--am-light)', // #DBEAFE
-        canvas: 'var(--am-app-bg)', // #F0F6FF
-        surface: 'var(--am-white)', // #FFFFFF
-        muted: 'var(--am-muted)', // #64748B
-        line: 'var(--am-border)', // #E2E8F0
+        primary: 'rgb(var(--am-primary-rgb) / <alpha-value>)', // #1E5EFF
+        navy: 'rgb(var(--am-navy-rgb) / <alpha-value>)', // #0A1F44
+        accent: 'rgb(var(--am-accent-rgb) / <alpha-value>)', // #3B82F6
+        sky: 'rgb(var(--am-light-rgb) / <alpha-value>)', // #DBEAFE
+        canvas: 'rgb(var(--am-app-bg-rgb) / <alpha-value>)', // #F0F6FF
+        surface: 'rgb(var(--am-white-rgb) / <alpha-value>)', // #FFFFFF
+        muted: 'rgb(var(--am-muted-rgb) / <alpha-value>)', // #64748B
+        line: 'rgb(var(--am-border-rgb) / <alpha-value>)', // #E2E8F0
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Charte graphique Atelier Motion — bleu et blanc */
+:root {
+  --am-primary: #1e5eff; /* boutons, sélection, images clés actives */
+  --am-navy: #0a1f44; /* barre du haut, textes forts */
+  --am-accent: #3b82f6; /* survols, liens */
+  --am-light: #dbeafe; /* fonds de panneaux, pistes de timeline */
+  --am-app-bg: #f0f6ff; /* fond de l'application */
+  --am-white: #ffffff; /* scène, cartes, champs */
+  --am-muted: #64748b; /* textes secondaires */
+  --am-border: #e2e8f0; /* bordures */
+
+  /* Mêmes couleurs en canaux RGB, pour les opacités Tailwind (bg-primary/20…) */
+  --am-primary-rgb: 30 94 255;
+  --am-navy-rgb: 10 31 68;
+  --am-accent-rgb: 59 130 246;
+  --am-light-rgb: 219 234 254;
+  --am-app-bg-rgb: 240 246 255;
+  --am-white-rgb: 255 255 255;
+  --am-muted-rgb: 100 116 139;
+  --am-border-rgb: 226 232 240;
+  --am-radius: 8px;
+  --am-shadow: 0 1px 2px rgba(10, 31, 68, 0.04), 0 4px 16px rgba(10, 31, 68, 0.06);
+
+  color-scheme: light;
+  font-family: Inter, system-ui, sans-serif;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--am-app-bg);
+  color: var(--am-navy);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+@layer components {
+  .panel {
+    @apply bg-surface rounded-am shadow-soft border border-line;
+  }
+  .panel-title {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-muted;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-am px-3 h-8 text-[13px] font-medium
+      transition-colors select-none disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-accent shadow-sm;
+  }
+  .btn-ghost {
+    @apply btn text-navy hover:bg-sky hover:text-primary;
+  }
+  .btn-outline {
+    @apply btn border border-line bg-surface text-navy hover:border-accent hover:text-accent;
+  }
+  .btn-on-dark {
+    @apply btn text-white/90 hover:bg-white/10 hover:text-white;
+  }
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-7 h-7 rounded-am text-muted hover:bg-sky hover:text-primary
+      transition-colors disabled:opacity-30 disabled:pointer-events-none;
+  }
+  .icon-btn-active {
+    @apply bg-sky text-primary;
+  }
+  .field {
+    @apply h-7 w-full rounded-am border border-line bg-surface px-2 text-[12px] text-navy outline-none
+      focus:border-primary focus:ring-2 focus:ring-primary/15 transition-shadow;
+  }
+  .field-label {
+    @apply text-[12px] text-muted select-none;
+  }
+  .chip {
+    @apply inline-flex items-center rounded-full bg-sky text-primary px-2 h-5 text-[11px] font-medium;
+  }
+  .menu {
+    @apply panel shadow-pop py-1 min-w-[200px] z-50;
+  }
+  .menu-item {
+    @apply flex w-full items-center gap-2 px-3 h-8 text-left text-[13px] text-navy hover:bg-sky hover:text-primary;
+  }
+  .tab {
+    @apply px-3 h-8 rounded-am text-[13px] font-medium text-muted hover:text-accent;
+  }
+  .tab-active {
+    @apply bg-sky text-primary;
+  }
+}
+
+/* Barres de défilement discrètes */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--am-accent);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input[type='color'] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: 1px solid var(--am-border);
+  border-radius: 6px;
+}
+
+input[type='range'] {
+  accent-color: var(--am-primary);
+}
+
+.checker {
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #eef2f7 25%, transparent 25%), linear-gradient(-45deg, #eef2f7 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #eef2f7 75%), linear-gradient(-45deg, transparent 75%, #eef2f7 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

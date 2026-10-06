@@ -541,3 +541,29 @@ export function centerPath(d: string): { d: string; cx: number; cy: number; widt
     height: b.maxY - b.minY,
   };
 }
+
+/**
+ * Donne une structure commune à plusieurs tracés (export CSS / GSAP :
+ * l'interpolation numérique directe des chaînes devient alors possible).
+ */
+export function normalizeMany(paths: PathData[]): PathData[] {
+  if (paths.length === 0) return [];
+  const n = Math.max(...paths.map((p) => p.length));
+  const counts: number[] = [];
+  const closed: boolean[] = [];
+  for (let i = 0; i < n; i++) {
+    counts.push(Math.max(1, ...paths.map((p) => p[i]?.segs.length ?? 0)));
+    closed.push(paths.some((p) => p[i]?.closed));
+  }
+  return paths.map((p) => {
+    const out: PathData = [];
+    for (let i = 0; i < n; i++) {
+      const ref = p[i] ?? paths.find((q) => q[i])![i];
+      const sp = p[i] ?? collapsed(p.length ? centroid(p[p.length - 1]) : centroid(ref), closed[i]);
+      const norm = subdivideTo(sp, counts[i]);
+      norm.closed = closed[i];
+      out.push(norm);
+    }
+    return out;
+  });
+}

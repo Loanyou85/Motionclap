@@ -103,3 +103,17 @@ describe('tracés SVG', () => {
     expect(b.maxY).toBeCloseTo(25);
   });
 });
+
+describe('normalisation multiple', () => {
+  it('donne la même structure à trois tracés', async () => {
+    const { normalizeMany } = await import('../path');
+    const out = normalizeMany([
+      parsePath('M0 0 L10 0 L5 10 Z'),
+      parsePath('M0 0 H10 V10 H0 Z'),
+      parsePath('M0 0 H10 V10 H0 Z M20 20 H30 V30 Z'),
+    ]).map(serializePath);
+    const shape = (s: string) => s.replace(/-?\d+(\.\d+)?/g, '#');
+    expect(shape(out[0])).toBe(shape(out[1]));
+    expect(shape(out[1])).toBe(shape(out[2]));
+  });
+});
