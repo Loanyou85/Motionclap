@@ -93,7 +93,10 @@ describe('export GSAP', () => {
     const p = sampleProject();
     const { code } = exportGsap(p, p.compositions[0]);
     expect(code).toContain('gsap.timeline({ repeat: -1');
-    expect(code).toContain('ease: "power2.out"');
+    expect(code).toContain('ease: "easeOut"');
+    expect(code).toContain('CustomEase.create("easeOut", "M0,0 C0.33,1 0.68,1 1,1")');
+    // Le rebond est joué nativement, sans échantillonnage
+    expect(code).toContain('ease: "bounce.out"');
     expect(code).toContain('attr: { d:');
     expect(code).toContain('keyframes: [');
     expect(code).toContain('gsap.min.js');
@@ -104,7 +107,7 @@ describe('export GSAP', () => {
     const l = p.compositions[0].layers[0];
     l.props.x!.keyframes[0].easing = { type: 'cubicBezier', bezier: [0.1, 0.7, 0.2, 1] };
     const { code } = exportGsap(p, p.compositions[0]);
-    expect(code).toContain('CustomEase.create("courbe1", "M0,0 C0.1,0.7 0.2,1 1,1")');
+    expect(code).toMatch(/CustomEase.create\("courbe\d", "M0,0 C0.1,0.7 0.2,1 1,1"\)/);
   });
 });
 

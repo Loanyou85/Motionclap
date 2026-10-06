@@ -395,8 +395,10 @@ function AudioRow({ comp, zoom, trackW, assetName }: { comp: Composition; zoom: 
       if (!peaks) return;
       ctx.fillStyle = track.muted ? '#94A3B8' : '#1E5EFF';
       const bw = width / peaks.length;
+      // Affichage normalisé sur la crête maximale (les sons faibles restent lisibles).
+      const max = Math.max(0.0001, ...peaks);
       peaks.forEach((p, i) => {
-        const h = Math.max(1, p * 36 * track.volume);
+        const h = Math.max(1, (p / max) * 36 * Math.min(1, track.volume));
         ctx.fillRect(i * bw, 20 - h / 2, Math.max(1, bw - 0.6), h);
       });
     };

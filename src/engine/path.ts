@@ -555,15 +555,19 @@ export function normalizeMany(paths: PathData[]): PathData[] {
     counts.push(Math.max(1, ...paths.map((p) => p[i]?.segs.length ?? 0)));
     closed.push(paths.some((p) => p[i]?.closed));
   }
-  return paths.map((p) => {
+  const result: PathData[] = [];
+  paths.forEach((p, k) => {
     const out: PathData = [];
     for (let i = 0; i < n; i++) {
       const ref = p[i] ?? paths.find((q) => q[i])![i];
       const sp = p[i] ?? collapsed(p.length ? centroid(p[p.length - 1]) : centroid(ref), closed[i]);
-      const norm = subdivideTo(sp, counts[i]);
+      let norm = subdivideTo(sp, counts[i]);
       norm.closed = closed[i];
+      // Comme le moteur : chaque forme fermée est alignée sur la précédente.
+      if (k > 0) norm = alignClosed(result[k - 1][i], norm);
       out.push(norm);
     }
-    return out;
+    result.push(out);
   });
+  return result;
 }

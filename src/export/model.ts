@@ -95,7 +95,15 @@ const sameEasing = (a: Easing, b: Easing) =>
  * (élastique, rebond) sont échantillonnés à la cadence d'export.
  * Renvoie null si aucune propriété n'est animée.
  */
-export function buildTrack(ctx: ExportContext, layer: Layer, keys: PropKey[], offset: number, forceBake = false): TrackData | null {
+export function buildTrack(
+  ctx: ExportContext,
+  layer: Layer,
+  keys: PropKey[],
+  offset: number,
+  forceBake = false,
+  /** Courbes que la cible sait jouer telles quelles (ex. elastic de GSAP). */
+  native: (e: Easing) => boolean = () => false,
+): TrackData | null {
   const animated = keys.filter((k) => (layer.props[k]?.keyframes.length ?? 0) > 1);
   if (animated.length === 0) return null;
   const times = [...new Set(animated.flatMap((k) => layer.props[k]!.keyframes.map((kf) => kf.time)))].sort((a, b) => a - b);
@@ -126,7 +134,7 @@ export function buildTrack(ctx: ExportContext, layer: Layer, keys: PropKey[], of
       }
     }
     const easing = shared === 'none' ? ({ type: 'linear' } as Easing) : shared;
-    if (!bake && easing && (easing.type === 'hold' || easingToBezier(easing))) {
+    if (!bake && easing && (easing.type === 'hold' || easingToBezier(easing) || native(easing))) {
       segments.push({ t0: toGlobal(a), t1: toGlobal(b), from: evalValues(layer, keys, a), to: evalValues(layer, keys, b), easing });
       continue;
     }

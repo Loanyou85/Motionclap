@@ -1,7 +1,7 @@
 import { parseColor } from '../engine/color';
 import { normalizeMany, parsePath, serializePath } from '../engine/path';
 import { pointsToPathD, polygonPoints, starPoints } from '../engine/shapes';
-import type { Layer, PropKey } from '../engine/types';
+import type { Easing, Layer, PropKey } from '../engine/types';
 import { buildTrack, num, type ExportContext, type TrackData, type Values } from './model';
 
 /**
@@ -192,8 +192,8 @@ export function visualChannels(layer: Layer): Channel[] {
  * Piste d'un canal. Pour les tracés, toutes les valeurs reçoivent une structure
  * commune afin que CSS et GSAP puissent interpoler les chaînes directement.
  */
-export function channelTrack(ctx: ExportContext, layer: Layer, ch: Channel, offset: number): TrackData | null {
-  const track = buildTrack(ctx, layer, ch.keys, offset, ch.bake);
+export function channelTrack(ctx: ExportContext, layer: Layer, ch: Channel, offset: number, native?: (e: Easing) => boolean): TrackData | null {
+  const track = buildTrack(ctx, layer, ch.keys, offset, ch.bake, native);
   if (!track || ch.name !== 'd') return track;
   const all: Values[] = [track.initial, ...track.segments.flatMap((s) => [s.from, s.to])];
   const ds = all.map((v) => shapeD(layer, v));

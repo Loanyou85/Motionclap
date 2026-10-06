@@ -35,11 +35,12 @@ function confirmReplace(): boolean {
 export function TemplatesDialog() {
   const st = useStore.getState();
   const [built] = useState(() => TEMPLATES.map((t) => ({ t, project: t.build() })));
-  const open = (build: () => Project) => {
+  const open = (build: () => Project, autoplay: boolean) => {
     if (!confirmReplace()) return;
     st.loadProject(build());
     st.openDialog(null);
-    st.setPlaying(true);
+    // Les modèles se lancent pour être vus en mouvement ; un projet vide reste à l'arrêt.
+    if (autoplay) st.setPlaying(true);
   };
   return (
     <Modal title="Modèles de départ" onClose={() => st.openDialog(null)} width={940}>
@@ -49,7 +50,7 @@ export function TemplatesDialog() {
           <button
             key={f.id}
             className="group flex flex-col overflow-hidden rounded-am border border-dashed border-line bg-canvas text-left transition hover:border-accent"
-            onClick={() => open(() => createProject('Projet sans titre', createComposition({ width: f.width, height: f.height })))}
+            onClick={() => open(() => createProject('Projet sans titre', createComposition({ width: f.width, height: f.height })), false)}
           >
             <div className="flex h-[120px] items-center justify-center">
               <span className="rounded border-2 border-primary/40 bg-white" style={{ width: (f.width / Math.max(f.width, f.height)) * 90, height: (f.height / Math.max(f.width, f.height)) * 90 }} />
@@ -63,7 +64,7 @@ export function TemplatesDialog() {
           </button>
         ))}
         {built.map(({ t, project }) => (
-          <button key={t.id} className="group flex flex-col overflow-hidden rounded-am border border-line bg-surface text-left shadow-soft transition hover:border-accent hover:shadow-pop" onClick={() => open(t.build)}>
+          <button key={t.id} className="group flex flex-col overflow-hidden rounded-am border border-line bg-surface text-left shadow-soft transition hover:border-accent hover:shadow-pop" onClick={() => open(t.build, true)}>
             <div className="flex h-[150px] items-center justify-center bg-canvas p-2">
               <Thumbnail project={project} time={Math.min(2.2, project.compositions[0].duration * 0.6)} />
             </div>

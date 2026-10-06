@@ -6,20 +6,19 @@ import { channelTrack, cssColor, isSvgLayer, nodeChannels, shapeD, shapeKeys, vi
 import type { ExportResult, WebExportOptions } from './css';
 import { collectItems, createContext, escapeHtml, evalValues, num, sampleTimeline, type ExportContext, type RenderItem } from './model';
 
-/** Correspondance des courbes avec les eases natives de GSAP. */
-const GSAP_EASES: Partial<Record<Easing['type'], string>> = {
+/**
+ * Courbes jouées nativement par GSAP avec la même formule que le moteur.
+ * Les courbes bézier passent par CustomEase pour un rendu identique.
+ */
+const GSAP_NATIVE: Partial<Record<Easing['type'], string>> = {
   linear: 'none',
-  easeIn: 'power2.in',
-  easeOut: 'power2.out',
-  easeInOut: 'power2.inOut',
-  backIn: 'back.in(1.7)',
-  backOut: 'back.out(1.7)',
-  backInOut: 'back.inOut(1.7)',
   elasticIn: 'elastic.in(1, 0.3)',
   elasticOut: 'elastic.out(1, 0.3)',
   bounceIn: 'bounce.in',
   bounceOut: 'bounce.out',
 };
+
+const isNative = (e: Easing) => e.type in GSAP_NATIVE;
 
 interface GsapBuilder {
   ctx: ExportContext;
@@ -30,13 +29,13 @@ interface GsapBuilder {
 
 function easeName(b: GsapBuilder, e: Easing | null): string {
   if (!e) return 'none';
-  if (e.type === 'cubicBezier') {
-    const bz = easingToBezier(e)!;
-    const key = bz.join(',');
-    if (!b.customEases.has(key)) b.customEases.set(key, `courbe${b.customEases.size + 1}`);
-    return b.customEases.get(key)!;
-  }
-  return GSAP_EASES[e.type] ?? 'none';
+  const native = GSAP_NATIVE[e.type];
+  if (native) return native;
+  const bz = easingToBezier(e);
+  if (!bz) return 'none';
+  const key = bz.join(',');
+  if (!b.customEases.has(key)) b.customEases.set(key, e.type === 'cubicBezier' ? `courbe${b.customEases.size + 1}` : e.type);
+  return b.customEases.get(key)!;
 }
 
 const js = (v: unknown) => JSON.stringify(v);
@@ -55,7 +54,7 @@ function channelLines(b: GsapBuilder, selector: string, layer: Layer, channels: 
   const t0 = Math.max(0, -offset);
   for (const ch of channels) {
     const isD = ch.name === 'd';
-    const track = channelTrack(b.ctx, layer, ch, offset);
+    const track = channelTrack(b.ctx, layer, ch, offset, isNative);
     if (!track) {
       const v = ch.gsap(evalValues(layer, ch.keys, t0));
       if (isD) attrD = String(v.d);

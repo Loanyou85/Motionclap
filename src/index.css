@@ -54,7 +54,8 @@ body {
   }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-am px-3 h-8 text-[13px] font-medium
-      transition-colors select-none disabled:opacity-40 disabled:pointer-events-none;
+      transition-colors select-none disabled:opacity-40 disabled:pointer-events-none
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60;
   }
   .btn-primary {
     @apply btn bg-primary text-white hover:bg-accent shadow-sm;
@@ -70,7 +71,8 @@ body {
   }
   .icon-btn {
     @apply inline-flex items-center justify-center w-7 h-7 rounded-am text-muted hover:bg-sky hover:text-primary
-      transition-colors disabled:opacity-30 disabled:pointer-events-none;
+      transition-colors disabled:opacity-30 disabled:pointer-events-none
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60;
   }
   .icon-btn-active {
     @apply bg-sky text-primary;
@@ -92,7 +94,8 @@ body {
     @apply flex w-full items-center gap-2 px-3 h-8 text-left text-[13px] text-navy hover:bg-sky hover:text-primary;
   }
   .tab {
-    @apply px-3 h-8 rounded-am text-[13px] font-medium text-muted hover:text-accent;
+    @apply px-3 h-8 rounded-am text-[13px] font-medium text-muted hover:text-accent
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60;
   }
   .tab-active {
     @apply bg-sky text-primary;

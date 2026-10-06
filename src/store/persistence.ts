@@ -53,8 +53,7 @@ export async function loadLastProject(): Promise<Project | null> {
 /** Active la sauvegarde automatique : chaque modification est enregistrée après une courte pause. */
 export function startAutosave(delay = 800): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const unsub = useStore.subscribe((state, prev) => {
-    if (state.project === prev.project) return;
+  const schedule = (wait: number) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(async () => {
       const p = useStore.getState().project;
@@ -65,7 +64,12 @@ export function startAutosave(delay = 800): () => void {
       } catch {
         useStore.getState().setSaveStatus('error');
       }
-    }, delay);
+    }, wait);
+  };
+  // Un projet chargé avant l'activation (modèle de démarrage) est enregistré tout de suite.
+  if (useStore.getState().saveStatus !== 'saved') schedule(0);
+  const unsub = useStore.subscribe((state, prev) => {
+    if (state.project !== prev.project) schedule(delay);
   });
   return () => {
     unsub();
